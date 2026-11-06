@@ -1,43 +1,51 @@
-# Sparse Frame Processing for Motion-Triggered Embedded Vision
+# Motion-Gated ROI Extraction for Edge AI on Microcontrollers
 
-Event-camera-inspired motion detection on a microcontroller: process only the regions of a
-conventional camera frame that changed, and measure what that buys in speed, memory and
-power on an STM32H7, and what it costs in detection accuracy.
+Event-camera-inspired sparse processing on a conventional camera: find what moved with cheap
+frame differencing, cut the frame down to a few regions of interest (ROIs), and run a
+detector (e.g. person or face) only on those regions instead of the full frame. The goal is
+to measure how much processing this saves, and how much detection accuracy it costs, on an
+STM32H7 microcontroller.
 
-> **Status: early research prototype.** The algorithm is being validated on PC against a
-> public benchmark. Firmware is at toolchain bring-up. Results below are planned, not yet measured.
+> **Status: early research prototype.** Motion detection and two ROI extraction methods are
+> implemented and evaluated on PC against a public benchmark (first results below). The
+> downstream detector is not yet integrated. Firmware is at toolchain bring-up.
 
 ---
 
 ## Research question
 
-Event cameras report only per-pixel brightness changes, so downstream processing scales with
-scene activity instead of frame size. Conventional cameras don't work that way, but the idea
-can be approximated in software: difference consecutive frames, keep only the regions that
-changed, and process just those.
+Event cameras report only per-pixel brightness changes, so downstream work scales with scene
+activity instead of frame size. But they produce no intensity image, which makes standard
+detectors hard to apply, and they are expensive. A conventional camera plus software
+differencing can approximate the same sparsity while keeping full pixel images for the
+detector.
 
-**Can this sparse processing reduce compute enough for real-time motion detection on
-MCU-class hardware, and what are the accuracy, latency, memory and power trade-offs compared
-with full-frame processing?**
+**Can motion-gated ROI extraction reduce the cost of running a detector enough to make
+MCU-class hardware a useful edge-AI device, and what does it cost in accuracy compared with
+running the detector on every full frame?**
 
 ### Framing
 
-- **Resolution sets a fixed cost per frame.** Frame differencing, thresholding and
-  morphological cleanup each touch every pixel, regardless of how much moved.
-- **Sparsity saves work after that point:** ROI extraction, classification, encoding and
-  transmission scale with the number and size of changed regions.
-- An open hypothesis, to be tested rather than assumed: for motion detection (as opposed to
-  fine recognition), low resolution may lose little accuracy relative to the compute it saves.
-  TinyML person-detection models running on 96×96 grayscale input suggest coarse input can be enough.
+- **The motion stage has a fixed cost per frame.** Differencing, thresholding and
+  morphology touch every pixel regardless of how much moved, so they must be cheap.
+- **The detector dominates the total cost.** A detector with a fixed input size costs the
+  same per run, so the number of ROIs (detector runs), not their pixel area, drives the
+  savings. Frames without motion cost no detector run at all.
+- **ROI extraction has to favour recall.** A missed region is a missed detection; an
+  oversized or merged box only costs some extra detector work. One box covering two nearby
+  objects is acceptable, because the detector can still find both.
+- An open hypothesis, to be tested rather than assumed: the motion map can run at a lower
+  resolution than the detector input without losing ROIs. TinyML person-detection models
+  run on 96×96 grayscale input, which suggests coarse input can be enough for this stage.
 
 ## Approach
 
 ### Pipeline
 
 ```
-camera ──► Y (luma) plane ──► |Yₜ − Yₜ₋₁| ──► threshold ──► open ──► close ──► ROI extraction ──► decision
-           (8 bit/pixel)       absdiff         binary       noise    bridge     contours or grid
-                                                mask        removal  fragments
+camera ──► Y (luma) ──► |Yₜ − Yₜ₋₁| ──► threshold ──► open ──► close ──► ROI extraction ──► detector on each ROI
+           8 bit/px      absdiff         binary       remove   bridge     contours or        (planned)
+                                         mask         specks   gaps       projections
 ```
 
 Only the luminance plane is used. Differencing does not need colour, and dropping chroma
@@ -47,38 +55,57 @@ ROI strategies compared:
 
 | Strategy | Method | Notes |
 |---|---|---|
-| **Contours** | external contours → bounding boxes, minimum-area filter | Tight boxes, but can fragment one object into many, because differencing finds edges and texture, not uniform interiors. Cost grows with mask noise. |
+| **Contours** | external contours → bounding boxes, minimum-area filter | Tight boxes, but one object often fragments into several, because differencing finds edges and texture, not uniform interiors. Cost grows with mask noise. |
 | **Projections** | recursive X-Y cut: count motion pixels per column, split into active intervals, then per row within each strip, alternating until regions stop splitting | About one pass per level and < 2 KB of memory. Fewer, larger boxes; objects that no straight cut separates share a box. |
-| **Grid** | split mask into fixed cells, mark a cell active if its changed-pixel fraction exceeds a threshold | Coarse and MCU-friendly. Tried in the first prototype; not yet in the evaluation harness. |
+| **Grid** | split the mask into fixed cells, mark a cell active if its changed-pixel fraction exceeds a threshold | Coarse and MCU-friendly. Tried in the first prototype; not yet in the evaluation harness. |
 
-Cost and memory of every stage, with PC measurements, are documented in
+Cost and memory of every stage are documented in
 [docs/processing_profiles.md](docs/processing_profiles.md).
+
+### First results (PC)
+
+CDnet 2014 baseline category (4 videos, 320×240), mean over videos. Boxes are filled into a
+mask and scored per pixel against the ground truth. This is a project-specific evaluation,
+not comparable with published CDnet results. Times are single-threaded PC wall time for the
+whole pipeline up to that output and are relative only.
+
+| Output | Recall | Precision | Boxes/frame | µs/frame |
+|---|---|---|---|---|
+| mask: threshold + open + close | 0.34 | 0.79 | – | 188 |
+| contours on threshold + open + close | 0.61 | 0.59 | 5.9 | 220 |
+| projections on threshold + open | 0.65 | 0.51 | 3.6 | 147 |
+
+Projections reach higher recall with fewer boxes (fewer detector runs) at lower cost than
+contours. Full tables, parameters and per-stage times are in the
+[processing profiles](docs/processing_profiles.md).
 
 ### Experiment design
 
-Results will form a **2-D trade-off surface** over:
+Results will form a trade-off surface over:
 
-- **Sparsity:** difference threshold, morphology kernel sizes, grid cell size and fill threshold
-- **Resolution:** QQVGA / QVGA / VGA (higher tiers are limited by on-chip RAM; see below)
+- **Motion parameters:** difference threshold, morphology kernel sizes, ROI method and its parameters
+- **Motion-map resolution:** QQVGA / QVGA / VGA (higher tiers are limited by on-chip RAM; see below)
+- **Detector input size**, independent of the motion-map resolution
 
 Measured on each configuration:
 
 | Metric | Notes |
 |---|---|
-| Throughput | frames per second |
-| Latency | capture to decision |
+| ROI quality | pixel-level recall/precision against CDnet ground truth (done); object-level hit rate (planned) |
+| Detector work | ROIs per frame, frame coverage, fraction of frames that trigger the detector |
+| Detection accuracy | detector on ROIs vs. detector on full frames |
+| Throughput and latency | frames per second; capture to decision |
 | Memory | static and peak RAM footprint |
 | Power | idle / active / peak |
-| Accuracy | against CDnet 2014 ground truth, at pixel, grid-cell and frame (motion yes/no) level |
 
-All measurements are repeated and reported as mean ± variance.
+MCU measurements will be repeated and reported as mean ± variance.
 
 ### Evaluation data
 
 PC-side validation uses the public [CDnet 2014](http://changedetection.net/) change-detection
-benchmark, which has pixel-level ground truth. See [data/README.md](data/README.md) for download
-and layout. Native resolutions range from 320×240 to 720×576, so the resolution axis on PC is
-produced by downsampling.
+benchmark, which has pixel-level ground truth. The baseline category (320×240) is used so
+far. See [data/README.md](data/README.md) for download and layout. The resolution axis on PC
+is produced by downsampling.
 
 ## Hardware
 
@@ -97,12 +124,12 @@ frame-buffer strategy, which will be documented as such.
 
 ```
 .
-├── pc-prototype/       Algorithm prototype — C++20, OpenCV, native build
+├── pc-prototype/       Algorithm prototype and evaluation harness — C++20, OpenCV
 ├── firmware/           STM32H753 firmware — C++20, arm-none-eabi-gcc, CMake
 │   └── cmake/          Cross-compilation toolchain file
 ├── data/               Datasets (git-ignored; see data/README.md)
 ├── docs/
-│   ├── NOTES.md                Running decision log
+│   ├── NOTES.md                Decision log
 │   └── processing_profiles.md  Cost, memory and accuracy of each technique
 └── .github/workflows/  CI: builds both targets on every push
 ```
@@ -140,22 +167,22 @@ board runs.
 - [x] Contour-based ROI extraction
 - [x] Projection (recursive X-Y cut) ROI extraction
 - [x] Evaluation harness against CDnet 2014 ground truth (pixel level), with per-stage timing
+- [ ] Object-level hit rate and frame-level trigger metrics
 - [ ] Grid-based ROI extraction in the harness
-- [ ] Object-level hit rate
-- [ ] Merge fragmented contour boxes into per-object ROIs (cheap clustering, e.g. union-find on overlapping boxes)
-- [ ] Quantitative contour-vs-grid comparison (sparsity ratio, frame-to-frame ROI stability)
+- [ ] Merge fragmented contour boxes into per-object ROIs
 - [ ] Parameter and resolution sweeps
+- [ ] Run a detector on the ROIs and compare against full-frame detection
 
 **Firmware**
 - [x] CMake cross-compilation toolchain for Cortex-M7
 - [ ] CubeMX startup code and linker script, board bring-up (LED, UART)
 - [ ] SCCB camera configuration, DCMI + DMA luma-only frame capture
 - [ ] Port the validated pipeline to the MCU
+- [ ] Run a quantised detector on the ROIs
 - [ ] Profiling: FPS, latency, memory, power
-- [ ] Unit tests (Unity)
 
 **Later**
-- [ ] Use the motion trigger to drive LoRaWAN / MQTT uplink
+- [ ] Use the detections to drive a LoRaWAN / MQTT uplink
 - [ ] Write-up as a short paper
 
 ## Known limitations
@@ -163,10 +190,13 @@ board runs.
 Frame differencing is simple by design, and it has well-documented weaknesses that this
 project reports rather than hides:
 
-- **Sensitive to noise and lighting changes**, which the morphological opening only partly suppresses
+- **Misses objects that stop moving**, since a static object produces no difference. The
+  detector is never triggered on them; this is a stated limitation of the approach.
 - **Misses slow motion**, where the change between consecutive frames falls below the threshold
 - **Leaves holes inside objects**, because uniform interiors produce little difference signal
-- **Misses objects that stop moving**, since a static object produces no difference
+- **Sensitive to noise and lighting changes**, which the morphological opening only partly suppresses
+- **Pixel-level scoring of boxes** penalises boxes that are larger than the object, even
+  though a detector tolerates them; object-level metrics are planned to complement it
 - **HAL overhead**: firmware will use the STM32 HAL, so timings will include driver overhead that direct register access would avoid
 
 ## Related work
@@ -174,3 +204,7 @@ project reports rather than hides:
 - Sehairi, Chouireb & Meunier, *Comparative study of motion detection methods for video surveillance systems* — [arXiv:1804.05459](https://arxiv.org/abs/1804.05459)
 - NeuroHSMD: neuromorphic hybrid spiking motion detector — [arXiv:2112.06102](https://arxiv.org/abs/2112.06102)
 - Wang et al., *CDnet 2014: An Expanded Change Detection Benchmark Dataset*, CVPRW 2014 — [paper](https://openaccess.thecvf.com/content_cvpr_workshops_2014/W12/html/Wang_CDnet_2014_An_2014_CVPR_paper.html)
+
+## License
+
+[MIT](LICENSE)
