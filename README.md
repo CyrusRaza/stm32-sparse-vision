@@ -51,13 +51,13 @@ camera ──► Y (luma) ──► |Yₜ − Yₜ₋₁| ──► threshold �
 Only the luminance plane is used. Differencing does not need colour, and dropping chroma
 halves the per-frame memory compared with YUV422.
 
-ROI strategies compared:
+ROI strategies:
 
-| Strategy | Method | Notes |
-|---|---|---|
-| **Contours** | external contours → bounding boxes, minimum-area filter | Tight boxes, but one object often fragments into several, because differencing finds edges and texture, not uniform interiors. Cost grows with mask noise. |
-| **Projections** | recursive X-Y cut: count motion pixels per column, split into active intervals, then per row within each strip, alternating until regions stop splitting | About one pass per level and < 2 KB of memory. Fewer, larger boxes; objects that no straight cut separates share a box. |
-| **Grid** | split the mask into fixed cells, mark a cell active if its changed-pixel fraction exceeds a threshold | Coarse and MCU-friendly. Tried in the first prototype; not yet in the evaluation harness. |
+| Strategy | Status | Method | Notes |
+|---|---|---|---|
+| **Contours** | implemented, evaluated | external contours → bounding boxes, minimum-area filter | Tight boxes, but one object often fragments into several, because differencing finds edges and texture, not uniform interiors. Cost grows with mask noise. |
+| **Projections** | implemented, evaluated | recursive X-Y cut: count motion pixels per column, split into active intervals, then per row within each strip, alternating until regions stop splitting | About one pass per level and < 2 KB of memory. Fewer, larger boxes; objects that no straight cut separates share a box. |
+| **Grid** | planned | split the mask into fixed cells, mark a cell active if its changed-pixel fraction exceeds a threshold | Coarse and MCU-friendly. Tried in an early prototype; not yet in the evaluation harness. |
 
 Cost and memory of every stage are documented in
 [docs/processing_profiles.md](docs/processing_profiles.md).
