@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pc-prototype:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OpenCV
+        run: sudo apt-get update && sudo apt-get install -y libopencv-dev
+      - name: Configure
+        run: cmake -S pc-prototype -B pc-prototype/build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build pc-prototype/build -j
+
+  firmware:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Arm GNU toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi
+      - name: Configure
+        run: cmake -S firmware -B firmware/build -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi.cmake
+      - name: Build
+        run: cmake --build firmware/build -j

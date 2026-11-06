@@ -1,0 +1,18 @@
+# Build output
+build/
+**/build/
+*.o
+*.elf
+*.bin
+*.hex
+*.map
+
+# Datasets and generated results (see data/README.md)
+data/*
+!data/README.md
+
+# Editor / OS
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
