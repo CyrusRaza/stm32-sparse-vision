@@ -124,8 +124,8 @@ frame-buffer strategy, which will be documented as such.
 
 ```
 .
-├── pc-prototype/       Algorithm prototype and evaluation harness — C++20, OpenCV
-├── firmware/           STM32H753 firmware — C++20, arm-none-eabi-gcc, CMake
+├── pc-prototype/       Algorithm prototype and evaluation harness | C++20, OpenCV
+├── firmware/           STM32H753 firmware | C++20, arm-none-eabi-gcc, CMake
 │   └── cmake/          Cross-compilation toolchain file
 ├── data/               Datasets (git-ignored; see data/README.md)
 ├── docs/
@@ -201,9 +201,9 @@ project reports rather than hides:
 
 ## Related work
 
-- Sehairi, Chouireb & Meunier, *Comparative study of motion detection methods for video surveillance systems* — [arXiv:1804.05459](https://arxiv.org/abs/1804.05459)
-- NeuroHSMD: neuromorphic hybrid spiking motion detector — [arXiv:2112.06102](https://arxiv.org/abs/2112.06102)
-- Wang et al., *CDnet 2014: An Expanded Change Detection Benchmark Dataset*, CVPRW 2014 — [paper](https://openaccess.thecvf.com/content_cvpr_workshops_2014/W12/html/Wang_CDnet_2014_An_2014_CVPR_paper.html)
+- Sehairi, Chouireb & Meunier, *Comparative study of motion detection methods for video surveillance systems* | [arXiv:1804.05459](https://arxiv.org/abs/1804.05459)
+- NeuroHSMD: neuromorphic hybrid spiking motion detector | [arXiv:2112.06102](https://arxiv.org/abs/2112.06102)
+- Wang et al., *CDnet 2014: An Expanded Change Detection Benchmark Dataset*, CVPRW 2014 | [paper](https://openaccess.thecvf.com/content_cvpr_workshops_2014/W12/html/Wang_CDnet_2014_An_2014_CVPR_paper.html)
 
 ## License
 
